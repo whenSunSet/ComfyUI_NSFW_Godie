@@ -8,6 +8,7 @@ class NSFWTextFilter:
     _nsfw_phrases = None
     _last_load_time = 0
     _cache_duration = 3600  # Cache duration in seconds (1 hour)
+    _current_file_path = None
 
     @classmethod
     def get_instance(cls):
@@ -18,21 +19,23 @@ class NSFWTextFilter:
     def __init__(self):
         self.load_nsfw_words()
     
-    def load_nsfw_words(self):
+    def load_nsfw_words(self, custom_path=None):
         """Load NSFW words from the text file with cache handling"""
         current_time = time.time()
         
+        # Determine which file path to use
+        file_path = custom_path if custom_path else os.path.join(os.path.dirname(os.path.abspath(__file__)), "nsfw.txt")
+        
         # Check if we need to reload the words
         if (self._nsfw_words is None or self._nsfw_phrases is None or
-            current_time - self._last_load_time > self._cache_duration):
-            
-            nsfw_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nsfw.txt")
+            current_time - self._last_load_time > self._cache_duration or
+            file_path != self._current_file_path):
             
             try:
                 self._nsfw_words = set()
                 self._nsfw_phrases = set()
                 
-                with open(nsfw_file_path, 'r', encoding='utf-8') as f:
+                with open(file_path, 'r', encoding='utf-8') as f:
                     for line in f:
                         term = line.strip().lower()
                         if not term:
@@ -45,22 +48,23 @@ class NSFWTextFilter:
                             self._nsfw_words.add(term)
                 
                 self._last_load_time = current_time
-                print(f"[NSFW Filter] Loaded {len(self._nsfw_words)} single words and {len(self._nsfw_phrases)} phrases")
+                self._current_file_path = file_path
+                print(f"[NSFW Filter] Loaded {len(self._nsfw_words)} single words and {len(self._nsfw_phrases)} phrases from {file_path}")
             except Exception as e:
-                print(f"[NSFW Filter] Error loading NSFW words: {e}")
+                print(f"[NSFW Filter] Error loading NSFW words from {file_path}: {e}")
                 # If loading fails, make sure we have at least empty sets
                 if self._nsfw_words is None:
                     self._nsfw_words = set()
                 if self._nsfw_phrases is None:
                     self._nsfw_phrases = set()
     
-    def filter_text(self, text, replacement_char='*'):
+    def filter_text(self, text, replacement_char='*', custom_path=None):
         """Filter NSFW words in text while preserving original formatting"""
         if not text:
             return text
             
         # Reload words if needed
-        self.load_nsfw_words()
+        self.load_nsfw_words(custom_path)
         
         # Make a copy of the original text that we'll modify
         result = text
@@ -103,6 +107,7 @@ class NSFWFilterNode:
             },
             "optional": {
                 "replacement_char": ("STRING", {"default": "*", "multiline": False}),
+                "nsfw_file_path": ("STRING", {"default": "", "multiline": False}),
             },
         }
 
@@ -112,7 +117,7 @@ class NSFWFilterNode:
     OUTPUT_NODE = True
     DISPLAY_NAME = "ComfyUI_NSFW_Godie"
 
-    def filter_nsfw(self, text, replacement_char="*"):
+    def filter_nsfw(self, text, replacement_char="*", nsfw_file_path=""):
         # Make sure replacement_char is not empty, default to '*' if it is
         if not replacement_char:
             replacement_char = "*"
@@ -121,7 +126,7 @@ class NSFWFilterNode:
             replacement_char = replacement_char[0]
             
         filter_instance = NSFWTextFilter.get_instance()
-        filtered_text = filter_instance.filter_text(text, replacement_char)
+        filtered_text = filter_instance.filter_text(text, replacement_char, nsfw_file_path if nsfw_file_path else None)
         return (filtered_text,)
 
 
